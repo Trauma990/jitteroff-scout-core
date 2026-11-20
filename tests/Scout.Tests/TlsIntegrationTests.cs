@@ -7,6 +7,7 @@ using System.Text;
 using Scout.Contracts;
 using Scout.Core;
 using Scout.Probes;
+using Scout.Reporting;
 
 namespace Scout.Tests;
 
@@ -41,7 +42,7 @@ public class TlsIntegrationTests
     }
 
     [Theory]
-    [InlineData("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/admin\r\n\r\n", "unexpected_status")]
+    [InlineData("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1/admin\r\n\r\nprivate-body-secret", "unexpected_status")]
     [InlineData("oversize", "http_headers_too_large")]
     public async Task HttpsRedirectAndHeaderLimitDoNotFollowOrOverread(string response, string expectedReason)
     {
@@ -79,6 +80,8 @@ public class TlsIntegrationTests
             Assert.Equal("complete", report.RunStatus);
             Assert.Equal("fail", report.Checks[^1].Status);
             Assert.Equal(expectedReason, report.Checks[^1].ReasonCode);
+            foreach (var rendered in new[] { Reports.ToJson(report), Reports.ToHtml(report), Reports.ToMarkdown(report) })
+                Assert.DoesNotContain("private-body-secret", rendered);
             Assert.False(listener.Pending());
         }
         finally { listener.Stop(); }

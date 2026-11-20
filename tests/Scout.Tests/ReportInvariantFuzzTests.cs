@@ -79,18 +79,18 @@ public class ReportInvariantFuzzTests
             var secret = $"private-token-{i}-{random.NextInt64():x}";
             var body = $"private-body-{i}-{random.NextInt64():x}";
             var profile = new Profile("0.1", "public-profile", "0.1.0",
-                [new Endpoint("endpoint", host, 443, ["dns"], null, null, null)], new string('a', 64));
-            var report = await new Runner(new ThrowingResolver($"{host} {secret}"), new PublicAddressPolicy(),
-                new NeverConnect()).RunAsync(profile, 1);
+                [new Endpoint("endpoint", host, 443, i % 2 == 0 ? ["dns"] : ["dns", "tcp"], null, null, null)], new string('a', 64));
+            var resolver = i % 2 == 0 ? (IResolver)new ThrowingResolver($"{host} {secret}") : new FixedResolver(IPAddress.Parse("1.1.1.1"));
+            var report = await new Runner(resolver, new PublicAddressPolicy(),
+                i % 2 == 0 ? new NeverConnect() : new ThrowingConnector($"{host} {secret}")).RunAsync(profile, 1);
 
             Assert.Equal("partial", report.RunStatus);
             Assert.Equal(3, ReportOutcome.ExitCode(report));
-            Assert.Equal("inconclusive", report.Checks[0].Status);
+            Assert.Contains(report.Checks, x => x.Status == "inconclusive");
             foreach (var rendered in new[] { Reports.ToJson(report), Reports.ToHtml(report), Reports.ToMarkdown(report) })
             {
                 Assert.DoesNotContain(host, rendered);
                 Assert.DoesNotContain(secret, rendered);
-                Assert.DoesNotContain(body, rendered);
             }
 
             var wire = $"HTTP/1.1 200 OK\r\nContent-Length: {body.Length}\r\n\r\n{body}";
@@ -170,6 +170,12 @@ public class ReportInvariantFuzzTests
     private sealed class ThrowingResolver(string message) : IResolver
     {
         public Task<IPAddress[]> ResolveAsync(string host, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(message);
+    }
+
+    private sealed class ThrowingConnector(string message) : IConnectionFactory
+    {
+        public Task<Stream> ConnectAsync(IPAddress address, int port, CancellationToken cancellationToken) =>
             throw new InvalidOperationException(message);
     }
 
