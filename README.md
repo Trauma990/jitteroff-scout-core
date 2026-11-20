@@ -93,10 +93,10 @@ The security tests include a real local DNS server changing its answer mid-run, 
 
 The source, [architecture decision](docs/ADR-0001.md), [contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), English docs, and [Persian introduction](docs/README.fa.md) are public. CI builds and tests on Windows and Ubuntu. A separate [manual packaging workflow](.github/workflows/package-candidate.yml) makes short-lived **candidate** archives with SHA-256 checksums and SPDX SBOMs; those artifacts are not a release.
 
-The [release gate](https://github.com/Trauma990/jitteroff-scout-core/issues/3) remains open for a clean Windows test on a host without .NET installed and final license review. There is no `v0.1.0` release tag yet. Current evidence and known limitations are in [STATUS.md](docs/STATUS.md); [distributed component license notes](docs/THIRD-PARTY-LICENSES.md) describe the candidate archives.
+Use [GitHub Releases](https://github.com/Trauma990/jitteroff-scout-core/releases) for tagged downloads. The [release checklist](https://github.com/Trauma990/jitteroff-scout-core/issues/3) and [status evidence](docs/STATUS.md) record validation and known limitations. [Distributed component license notes](docs/THIRD-PARTY-LICENSES.md) describe the binary archives.
 
 ## Contributing, security, and license
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before a pull request. Keep all code and examples independent of private JITTEROFF infrastructure. Report security issues through the [private vulnerability reporting route](SECURITY.md), not a public exploit issue.
 
-Scout Core and its original project artwork are distributed under [Apache-2.0](LICENSE). The generated README illustration has its [own provenance note](assets/README.md). Third-party runtime license declarations in candidate SBOMs remain under review before a formal release.
+Scout Core and its original project artwork are distributed under [Apache-2.0](LICENSE). The generated README illustration has its [own provenance note](assets/README.md). Self-contained binaries embed .NET runtime components with separate terms; the Windows binary includes Microsoft's .NET Library License text. Review the [component license notes](docs/THIRD-PARTY-LICENSES.md) before redistributing a binary.

@@ -2,12 +2,22 @@ name: Package candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      package_version:
+        description: Version label for the archive and SBOM
+        required: true
+        default: 0.1.0-dev
+        type: choice
+        options:
+          - 0.1.0-dev
+          - 0.1.0
 
 permissions:
   contents: read
 
 env:
   RUNTIME_VERSION: 10.0.15
+  PACKAGE_VERSION: ${{ inputs.package_version }}
 
 jobs:
   package:
@@ -34,6 +44,8 @@ jobs:
       - name: Test locked source
         shell: pwsh
         run: |
+          if ($env:PACKAGE_VERSION -notin @('0.1.0-dev', '0.1.0')) { throw 'Unsupported package version.' }
+          if ($env:PACKAGE_VERSION -eq '0.1.0' -and $env:GITHUB_REF -ne 'refs/heads/main') { throw 'Final packages must be built from main.' }
           dotnet restore --locked-mode -p:SelfContained=true -p:RuntimeFrameworkVersion=$env:RUNTIME_VERSION
           if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
           dotnet test --no-restore --configuration Release -p:ScoutCommit=$env:GITHUB_SHA
@@ -75,7 +87,7 @@ jobs:
           if ($env:RID -eq 'linux-x64') { & chmod +x $tool; if ($LASTEXITCODE -ne 0) { throw 'chmod failed.' } }
           $drop = (Resolve-Path (Join-Path 'artifacts' $env:RID)).Path
           $source = (Resolve-Path 'src').Path
-          & $tool generate -b $drop -bc $source -pn jitteroff-scout-core -pv 0.1.0-dev -ps JITTEROFF-Scout-Core -nsb https://github.com/Trauma990/jitteroff-scout-core
+          & $tool generate -b $drop -bc $source -pn jitteroff-scout-core -pv $env:PACKAGE_VERSION -ps JITTEROFF-Scout-Core -nsb https://github.com/Trauma990/jitteroff-scout-core
           if ($LASTEXITCODE -ne 0) { throw 'SBOM generation failed.' }
           $packageRoot = ((dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', '').Trim()
           $runtimePack = Join-Path $packageRoot "microsoft.netcore.app.runtime.$env:RID/$env:RUNTIME_VERSION"
@@ -106,7 +118,7 @@ jobs:
           RID: ${{ matrix.rid }}
         run: |
           $drop = Join-Path 'artifacts' $env:RID
-          $name = "jitteroff-scout-core-0.1.0-dev-$env:RID.zip"
+          $name = "jitteroff-scout-core-$env:PACKAGE_VERSION-$env:RID.zip"
           $archive = Join-Path 'artifacts' $name
           Compress-Archive -Path (Join-Path $drop '*') -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -119,7 +131,7 @@ jobs:
         with:
           name: scout-candidate-${{ matrix.rid }}
           path: |
-            artifacts/jitteroff-scout-core-0.1.0-dev-${{ matrix.rid }}.zip
+            artifacts/jitteroff-scout-core-${{ inputs.package_version }}-${{ matrix.rid }}.zip
             artifacts/SHA256SUMS-${{ matrix.rid }}.txt
           if-no-files-found: error
           retention-days: 7
@@ -135,7 +147,7 @@ jobs:
       - name: Run downloaded executable without .NET in Nano Server
         shell: pwsh
         run: |
-          $archive = (Resolve-Path 'candidate/jitteroff-scout-core-0.1.0-dev-win-x64.zip').Path
+          $archive = (Resolve-Path "candidate/jitteroff-scout-core-$env:PACKAGE_VERSION-win-x64.zip").Path
           $expected = ((Get-Content 'candidate/SHA256SUMS-win-x64.txt').Trim() -split '\s+')[0]
           $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) { throw 'Downloaded Windows archive checksum mismatch.' }
