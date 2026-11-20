@@ -1,55 +1,100 @@
 # JITTEROFF Scout Core
 
+![Scout Core: four diagnostic checkpoints leading to a report pulse](assets/scout-core-hero.png)
+
 [![CI](https://github.com/Trauma990/jitteroff-scout-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Trauma990/jitteroff-scout-core/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-00cc84)](LICENSE)
 
-Scout Core is a local, opt-in endpoint diagnostic CLI for software maintainers. A small JSON profile declares public DNS hosts and expected HTTP status codes. Scout runs DNS, TCP, TLS and HTTP/1.1 checks, then writes a bounded report to a path you choose. It does **not** capture packets, scan IP ranges, change network settings, upload reports, use service account credentials or depend on JITTEROFF infrastructure.
+**A small, local diagnostic CLI for public endpoints.** Describe the checks in a JSON profile, approve that exact file by its SHA-256 digest, and get a bounded report that you can inspect before sharing. Scout Core runs on Windows and Linux with .NET 10. It does not require a JITTEROFF account or any JITTEROFF server.
 
-This is an early **0.1 development implementation**, not a released diagnostic product. See [status and known gaps](docs/STATUS.md) before using it. A completed command is not proof that an application works or that a network problem has a particular cause.
+> [!IMPORTANT]
+> This repository is a **0.1 development implementation**, not a tagged release. The [current status](docs/STATUS.md) lists the remaining release gates. A passing check is an observation at one moment, not proof that an app, game, or voice service works end to end.
 
-## Requirements and build
+[Quick start](#quick-start) · [What it checks](#what-it-checks) · [Reading results](#reading-results) · [Privacy and safety](#privacy-and-safety) · [فارسی](docs/README.fa.md)
 
-.NET SDK 10.0.300 or a later 10.0 patch. From a clean checkout:
+## Why use it?
 
-```powershell
+- **Explicit scope:** profiles name up to 10 public DNS endpoints and their ordered checks. No range scan or private-address switch.
+- **Consent before traffic:** `validate` and `plan` are offline. `run` requires the digest of the exact profile bytes.
+- **Honest outcomes:** blocked, inconclusive, cancelled, and budget-exhausted work cannot be reported as a successful complete run.
+- **Local, reviewable output:** JSON is canonical; optional static HTML and Markdown are rendered from it. Reports are never uploaded by Scout Core.
+- **Independent core:** the public project contains no JITTEROFF private API, account logic, production network configuration, or customer data.
+
+## Quick start
+
+Install the **.NET 10 SDK 10.0.300** (or a later 10.0 patch), clone this repository, and run from its root:
+
+```sh
 dotnet restore --locked-mode
 dotnet build --no-restore
 dotnet test --no-restore
 ```
 
-## First run
+Review the bundled public example, then inspect its plan. These commands make **no network request to the endpoint**:
 
-`validate` and `plan` do not access the network. Read the profile itself before approving a run. Only a SHA-256 digest of the **exact UTF-8 profile bytes** grants consent to that particular profile:
-
-```powershell
+```sh
+dotnet run --project src/Scout.Cli -- validate examples/public-web.json
 dotnet run --project src/Scout.Cli -- plan examples/public-web.json
-dotnet run --project src/Scout.Cli -- run examples/public-web.json --allow-profile-digest <digest-from-plan> --out report.json
+```
+
+To run the checks, copy the SHA-256 printed by `plan` into the next command. The value below is for the **unmodified** bundled example; if you edit the file, use its new digest. This step sends DNS, TCP, TLS, and HTTP requests to the public example endpoint.
+
+```sh
+dotnet run --project src/Scout.Cli -- run examples/public-web.json --allow-profile-digest d63a5e6dd8d004a4da886f1c88d21c4a6a8995d7eec7e1bf19179dcaa00ece26 --out report.json
 dotnet run --project src/Scout.Cli -- render report.json --format html --out report.html
 ```
 
-The example makes requests to a public demonstration domain. Running is optional. Do not include private targets or secrets in a profile. The CLI intentionally has no `--allow-private` switch.
+Open `report.json` before sharing it. `run` requires an existing output directory and refuses to replace a file unless `--overwrite` is supplied. A different profile, even with a one-byte edit, requires a new digest.
 
-`run` needs an existing output directory and refuses to replace a file unless `--overwrite` is supplied. `render` accepts `--format html` or `--format markdown`; `diff` takes two JSON reports and writes Markdown only when their profile ID, exact digest and network-policy version match. Up to three samples can be requested with `--samples 1`, `2` or `3`. No result is silently retried.
+## What it checks
 
-Exit codes: `0` complete with expected checks passing; `1` complete with observed check failures; `2` invalid input/output; `3` partial or internal error; `130` user cancellation. A blocked or inconclusive check never produces exit code 0. Run reports use a separate `run_status` (`complete`, `partial`, `cancelled`, `error`).
+The [example profile](examples/public-web.json) checks `example.com` with `HEAD /` and expects HTTP 200. Your own UTF-8 JSON profile can specify these ordered checks:
 
-## Contract and boundaries
+1. **DNS:** resolve the hostname and reject the entire answer if any address is non-public.
+2. **TCP:** connect to a validated IP. The recorded duration is connection time, **not ping**.
+3. **TLS:** verify certificate hostname and chain. Online revocation is explicitly **not checked**.
+4. **HTTP/1.1:** send a `HEAD` or `GET` request with the original hostname for TLS and `Host`, then record the status code. Redirects are never followed and response bodies are not retained.
 
-See [version 0.1 contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), and [architecture decision](docs/ADR-0001.md). The CLI accepts a maximum of 10 endpoints, 3 samples, 128 KiB profiles, and a 90-second total run budget. It permits only ordered prefixes of `dns,tcp,tls,http`. HTTPS requests use the approved IP, preserve the DNS name for certificate validation and `Host`, and do not follow redirects. HTTP response bodies are never stored.
+The checks must form an ordered prefix: `dns`, `dns,tcp`, `dns,tcp,tls`, or `dns,tcp,tls,http`. Scout resolves again before each check, validates all returned addresses, and gives the socket a concrete approved IP. Profiles are limited to 128 KiB and 10 endpoints; a run takes up to 3 samples within a 90-second total budget. See the [0.1 contract](docs/CONTRACT-0.1.md) and [profile schema](contracts/profile-0.1.schema.json) for exact fields and limits. The C# parser is authoritative where generic JSON Schema cannot express a rule.
 
-Reports contain per-run HMAC tokens for addresses rather than raw addresses. IDs, timing, platform and status remain visible; this is **not complete anonymization**. Review every report before sharing it.
+Other commands:
 
-## Interpretation and privacy
+```sh
+dotnet run --project src/Scout.Cli -- run examples/public-web.json --allow-profile-digest d63a5e6dd8d004a4da886f1c88d21c4a6a8995d7eec7e1bf19179dcaa00ece26 --samples 3 --out report-3.json
+dotnet run --project src/Scout.Cli -- render report.json --format markdown --out report.md
+dotnet run --project src/Scout.Cli -- diff report.json report-3.json --out comparison.md
+```
 
-DNS `pass` means the system resolver returned addresses that the public-address policy accepted. TCP `pass` means a socket connected to a validated address, with connect duration recorded. TLS `pass` means the certificate chain and hostname validated at that moment; online revocation is **not** checked. HTTP `pass` means a HEAD/GET response matched the profile's expected status. None of these checks proves that a game, voice connection or app works end to end. `fail` records a directly observed unmet expectation. `blocked` records a safety-policy refusal. `inconclusive` records that a reliable observation was unavailable. `skipped` records a dependency or total-budget condition.
+`diff` only compares reports with the same profile ID, exact profile digest, and network-policy version. It reports observed differences without inferring a cause or declaring an improvement.
 
-The JSON report is the canonical artifact. The static HTML and Markdown renderers accept only the report model, escape display values, and do not fetch external assets. No cookies, authorization headers, response bodies, packet traces or application files are collected. `report_id` is random. Address tokens are HMAC values using a new in-memory key each run; they cannot be correlated across runs. The report still includes public endpoint IDs, timestamps and platform context, so check it before sending it to anyone.
+## Reading results
 
-## Development
+`run_status: complete` means every planned check was accounted for; it does **not** mean every check passed. Individual checks use `pass`, `fail`, `blocked`, `inconclusive`, `skipped`, or `cancelled` with a typed reason. A safety refusal is `blocked`; an observation that cannot be trusted is `inconclusive`; a dependency or exhausted budget is `skipped`.
 
-The public profile schema is at [contracts/profile-0.1.schema.json](contracts/profile-0.1.schema.json). The strict C# parser is authoritative for duplicate keys, hostname and exact request-path rules that generic JSON Schema validators may not fully enforce. External includes and environment substitution are unsupported. Tests include controlled loopback fixtures, but these are not available as a CLI network-policy option. GitHub CI runs a read-only build and test matrix when the repository is published; local evidence is recorded under [docs/evidence](docs/evidence/2026-11-20-stage-1.md).
+- Exit `0`: complete run, all observed checks passed.
+- Exit `1`: complete run, at least one observed check failed.
+- Exit `2`: invalid input or output request.
+- Exit `3`: partial run or internal error.
+- Exit `130`: user cancellation.
 
-## Project scope
+No check is silently retried. An incomplete or unknown result cannot yield exit `0`. See the [threat model](docs/THREAT-MODEL.md) for the limits of these observations.
 
-The public implementation is original code in a fresh repository. It contains no JITTEROFF accounts, private API, server configuration, captures, or proprietary application code. An optional JITTEROFF adapter can be considered later in a separate private repository. Maintainers and contributors must keep that boundary.
+## Privacy and safety
 
-License: Apache-2.0. See [LICENSE](LICENSE). Security issues: [SECURITY.md](SECURITY.md).
+Scout Core does not capture packets, inspect applications, change system settings, use credentials, send telemetry, or upload reports. It rejects IP literals in profiles and blocks non-public addresses according to its public-address policy. It does not follow HTTP redirects. Test-only loopback fixtures are **not** exposed as CLI options.
+
+Reports omit raw DNS names and IP addresses. Instead, addresses get HMAC tokens from a new in-memory key on each run. **This is not full anonymization:** public profile and endpoint IDs, timestamps, platform, timings, statuses, and the profile digest remain visible. Never put personal data or secrets in IDs, and review every report before distributing it.
+
+The security tests include a real local DNS server changing its answer mid-run, a real socket that must not connect to loopback, TLS/HTTP fixtures, seeded report privacy cases, and checks against false success. [Evidence and CI links](docs/evidence/2026-11-20-stage-3-publication.md) are recorded alongside the code.
+
+## Project and release status
+
+The source, [architecture decision](docs/ADR-0001.md), [contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), English docs, and [Persian introduction](docs/README.fa.md) are public. CI builds and tests on Windows and Ubuntu. A separate [manual packaging workflow](.github/workflows/package-candidate.yml) makes short-lived **candidate** archives with SHA-256 checksums and SPDX SBOMs; those artifacts are not a release.
+
+The [release gate](https://github.com/Trauma990/jitteroff-scout-core/issues/3) remains open for a clean Windows test on a host without .NET installed and final license review. There is no `v0.1.0` release tag yet. Current evidence and known limitations are in [STATUS.md](docs/STATUS.md).
+
+## Contributing, security, and license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before a pull request. Keep all code and examples independent of private JITTEROFF infrastructure. Report security issues through the [private vulnerability reporting route](SECURITY.md), not a public exploit issue.
+
+Scout Core and its original project artwork are distributed under [Apache-2.0](LICENSE). The generated README illustration has its [own provenance note](assets/README.md). Third-party runtime license declarations in candidate SBOMs remain under review before a formal release.
