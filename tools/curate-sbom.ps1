@@ -9,16 +9,27 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$expectedHostHash = if ($Rid -eq 'win-x64') {
+    '3d231148f2d1453f35b746c000d875c0938118a94482a19abd2e9ccb88b881c1'
+} else {
+    '925ae08822485065720dc5b8f4e5ecd3d2dc4b0f13bbb424b11ef56c19ab4912'
+}
+$hostBinary = Join-Path $HostPackPath $(if ($Rid -eq 'win-x64') { "runtimes/$Rid/native/apphost.exe" } else { "runtimes/$Rid/native/apphost" })
+if (-not (Test-Path $hostBinary) -or
+    (Get-FileHash $hostBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHostHash) {
+    throw 'The native app-host bytes differ from the reviewed 10.0.15 NuGet pack.'
+}
 foreach ($name in @('LICENSE.TXT', 'THIRD-PARTY-NOTICES.TXT')) {
     $runtimeFile = Join-Path $RuntimePackPath $name
+    if (-not (Test-Path $runtimeFile)) { throw "The runtime $name is missing." }
     $hostFile = Join-Path $HostPackPath $name
-    if (-not (Test-Path $runtimeFile) -or -not (Test-Path $hostFile) -or
+    if ((Test-Path $hostFile) -and
         (Get-FileHash $runtimeFile -Algorithm SHA256).Hash -ne (Get-FileHash $hostFile -Algorithm SHA256).Hash) {
-        throw "The reviewed runtime and native-host $name files are missing or differ."
+        throw "The runtime and native-host $name files differ."
     }
 }
 $hostNuspec = Join-Path $HostPackPath "microsoft.netcore.app.host.$Rid.nuspec"
-if (-not (Test-Path $hostNuspec) -or
+if ((Test-Path $hostNuspec) -and
     (Get-Content $hostNuspec -Raw) -notmatch '<license type="expression">MIT</license>') {
     throw 'The native-host pack does not declare the reviewed MIT license.'
 }

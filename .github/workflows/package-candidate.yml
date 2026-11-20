@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
-          dotnet-version: 10.0.300
+          dotnet-version: 10.0.404
       - name: Test locked source
         shell: pwsh
         run: |
@@ -80,6 +80,10 @@ jobs:
           $packageRoot = ((dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', '').Trim()
           $runtimePack = Join-Path $packageRoot "microsoft.netcore.app.runtime.$env:RID/$env:RUNTIME_VERSION"
           $hostPack = Join-Path $packageRoot "microsoft.netcore.app.host.$env:RID/$env:RUNTIME_VERSION"
+          if (-not (Test-Path $hostPack)) {
+            $dotnetRoot = Split-Path (Get-Command dotnet).Source -Parent
+            $hostPack = Join-Path $dotnetRoot "packs/Microsoft.NETCore.App.Host.$env:RID/$env:RUNTIME_VERSION"
+          }
           $deps = Join-Path (Resolve-Path 'src/Scout.Cli/obj/Release/net10.0').Path "$env:RID/Scout.Cli.deps.json"
           $manifest = Join-Path $drop '_manifest/spdx_2.2/manifest.spdx.json'
           $curateArgs = @{
