@@ -17,6 +17,13 @@ Base reviewed commit: `2b9d908`. This is local development evidence, not proof o
 - `dotnet publish ... --runtime win-x64 --self-contained true --no-restore` — passed on the developer Windows host.
 - `dotnet publish ... --runtime linux-x64 --self-contained true --no-restore` — cross-publish passed on the developer Windows host; Linux execution was not repeated here.
 
+## Public CI and candidate artifacts
+
+- Review-remediation code commit `260619e` passed [Windows and Ubuntu CI](https://github.com/Trauma990/jitteroff-scout-core/actions/runs/44828471884).
+- [Manual candidate run 44828879276](https://github.com/Trauma990/jitteroff-scout-core/actions/runs/44828879276) passed locked restore, tests, self-contained publish, SBOM validation, ZIP checksum verification and artifact upload for Windows and Linux.
+- Downloaded both CI artifacts and independently matched each inner ZIP to its `SHA256SUMS` file. Both contain the binary, Scout license, .NET runtime license/notices, license notes and SPDX SBOM. The downloaded Windows binary passed offline `plan` on this developer host.
+- The Linux SBOM lists six packages and the Windows SBOM seven. All package license fields are `NOASSERTION`; both include both RIDs from source lockfiles. They are not per-archive license clearance.
+
 ## Still open before v0.1.0
 
 - Run the **new final-SHA** archive on a Windows machine without .NET SDK **and** Runtime; verify its downloaded SHA-256.
