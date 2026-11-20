@@ -1,0 +1,7 @@
+# Development status — 2026-11-20
+
+Implemented in the initial 0.1 development stage: independent .NET 10 solution, strict profile parsing, public-address gate, opt-in digest, DNS/TCP/TLS/HTTP probes, typed results, report consistency checks, JSON/HTML/Markdown output, report diff, and local security unit/integration tests.
+
+**Not yet accepted as a public 0.1 release:** broader report privacy fuzzing, clean no-SDK Windows install test, published CI result and release artifacts. Fresh staged-file checkouts on Windows and Ubuntu (WSL) build and pass the test suite; the Linux public sample run also completes. A self-contained Windows executable runs with .NET removed from `PATH`, but the build machine still has an SDK. TLS hostname, expiry, chain, HTTPS redirects, header limits, cancellation and total-budget exhaustion have deterministic local integration fixtures. The current implementation has no online certificate revocation check. System DNS cancellation can be delayed by the operating system. These gaps are tracked in the staged plan below; do not market them as complete.
+
+Stage 1: contract and runnable vertical slice with [local evidence](evidence/2026-11-20-stage-1.md). Stage 2: adversarial fixtures, schema artifact and report validation hardening with [local evidence](evidence/2026-11-20-stage-2.md). Stage 3: clean-install, CI, reproducible release, checksum/SBOM and public release review. Every stage needs passing evidence before its status changes.

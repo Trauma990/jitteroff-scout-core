@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:scout-core:profile:0.1",
+  "title": "Scout Core profile 0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "profile_version", "endpoints"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "profile_id": { "$ref": "#/$defs/id" },
+    "profile_version": { "type": "string", "maxLength": 64, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "endpoints": {
+      "type": "array", "minItems": 1, "maxItems": 10,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["endpoint_id", "host", "port", "checks"],
+        "properties": {
+          "endpoint_id": { "$ref": "#/$defs/id" },
+          "host": { "type": "string", "minLength": 4, "maxLength": 253, "pattern": "^[a-z0-9.-]+$" },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "checks": {
+            "oneOf": [
+              { "const": ["dns"] },
+              { "const": ["dns", "tcp"] },
+              { "const": ["dns", "tcp", "tls"] },
+              { "const": ["dns", "tcp", "tls", "http"] }
+            ]
+          },
+          "http_method": { "enum": ["HEAD", "GET"] },
+          "http_path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^/(?!/)[^?#\\\\\\x00-\\x1f]*$" },
+          "expected_status": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "type": "integer", "minimum": 100, "maximum": 599 } }
+        },
+        "if": { "properties": { "checks": { "const": ["dns", "tcp", "tls", "http"] } }, "required": ["checks"] },
+        "then": { "required": ["http_method", "http_path", "expected_status"] },
+        "else": { "not": { "anyOf": [ { "required": ["http_method"] }, { "required": ["http_path"] }, { "required": ["expected_status"] } ] } }
+      }
+    }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$" } }
+}

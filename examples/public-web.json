@@ -1,0 +1,16 @@
+{
+  "schema_version": "0.1",
+  "profile_id": "public-web-demo",
+  "profile_version": "0.1.0",
+  "endpoints": [
+    {
+      "endpoint_id": "example-web",
+      "host": "example.com",
+      "port": 443,
+      "checks": ["dns", "tcp", "tls", "http"],
+      "http_method": "HEAD",
+      "http_path": "/",
+      "expected_status": [200]
+    }
+  ]
+}

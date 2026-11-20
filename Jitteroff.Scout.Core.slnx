@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Scout.Cli/Scout.Cli.csproj" />
+    <Project Path="src/Scout.Contracts/Scout.Contracts.csproj" />
+    <Project Path="src/Scout.Core/Scout.Core.csproj" />
+    <Project Path="src/Scout.Privacy/Scout.Privacy.csproj" />
+    <Project Path="src/Scout.Probes/Scout.Probes.csproj" />
+    <Project Path="src/Scout.Reporting/Scout.Reporting.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Scout.Tests/Scout.Tests.csproj" />
+  </Folder>
+</Solution>
