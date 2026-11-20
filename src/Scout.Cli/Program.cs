@@ -39,9 +39,7 @@ static async Task<int> MainAsync(string[] args)
                 var report = await runner.RunAsync(profile, samples, interrupt.Token);
                 await Reports.WriteAtomicAsync(output, Reports.ToJson(report), flags.ContainsKey("--overwrite"), CancellationToken.None);
                 Console.WriteLine($"Report written. Run status: {report.RunStatus}; checks: {report.Checks.Count}/{report.PlannedChecks.Count}; pass={report.Checks.Count(x => x.Status == "pass")}; fail={report.Checks.Count(x => x.Status == "fail")}; blocked={report.Checks.Count(x => x.Status == "blocked")}; inconclusive={report.Checks.Count(x => x.Status == "inconclusive")}; skipped={report.Checks.Count(x => x.Status == "skipped")}.");
-                if (report.RunStatus == "cancelled") return 130;
-                if (report.RunStatus != "complete") return 3;
-                return report.Checks.Any(x => x.Status == "fail") ? 1 : 0;
+                return ReportOutcome.ExitCode(report);
             }
             case "render" when args.Length >= 5:
             {

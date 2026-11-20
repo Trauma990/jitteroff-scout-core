@@ -115,3 +115,14 @@ public static class ReportValidator
         _ => false
     };
 }
+
+public static class ReportOutcome
+{
+    public static int ExitCode(RunReport report)
+    {
+        ReportValidator.Validate(report);
+        if (report.RunStatus == "cancelled") return 130;
+        if (report.RunStatus != "complete") return 3;
+        return report.Checks.Any(x => x.Status == "fail") ? 1 : 0;
+    }
+}
