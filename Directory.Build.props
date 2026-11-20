@@ -5,6 +5,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <Version>0.1.0</Version>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <ScoutCommit Condition="'$(ScoutCommit)' == ''">unknown</ScoutCommit>
   </PropertyGroup>
 </Project>
