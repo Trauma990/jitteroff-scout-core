@@ -1,2 +1,2 @@
 * text=auto eol=lf
-third_party/dotnet/windows-runtime-10.0.15-LICENSE.txt -text
+third_party/dotnet/windows-runtime-10.0.15-LICENSE.txt -text -eol
