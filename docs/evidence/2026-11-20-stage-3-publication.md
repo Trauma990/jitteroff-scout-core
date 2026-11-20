@@ -1,0 +1,9 @@
+# Stage 3 publication and CI evidence — 2026-11-20
+
+The independent public development repository is [Trauma990/jitteroff-scout-core](https://github.com/Trauma990/jitteroff-scout-core), owned by the authenticated GitHub user `Trauma990`. The first source commit is [`4b8d80e`](https://github.com/Trauma990/jitteroff-scout-core/commit/4b8d80e981362e37178f456f0355cffd87af28a9). The repository was created public and without GitHub-generated starter files; the audited local `main` branch was pushed. The public repository URL returned HTTP 200 after push.
+
+The first [CI run](https://github.com/Trauma990/jitteroff-scout-core/actions/runs/44779165477) completed successfully. Its [Ubuntu job](https://github.com/Trauma990/jitteroff-scout-core/actions/runs/44779165477/job/136436922868) and [Windows job](https://github.com/Trauma990/jitteroff-scout-core/actions/runs/44779165477/job/136436923590) each completed with conclusion `success`. CI uses locked restore, Release build and tests, with `contents: read` and pinned action revisions. Local pre-push Release build had zero warnings/errors and 37 of 37 xUnit tests passed. The final staged source had 48 files, no binary/report/key artifact paths, no matches for the known private-infrastructure pattern set, and no whitespace errors.
+
+Private vulnerability reporting was enabled and verified through the GitHub repository API. The public repository has `cli`, `dotnet`, `network-diagnostics`, `open-source`, `privacy` and `ssrf-protection` topics.
+
+This is a development-source publication, **not** a 0.1 release tag. Remaining release gates: broaden report privacy fuzzing, run a clean Windows install without an SDK, produce and verify release artifacts with SHA-256 checksums and an SBOM, and review the final release materials. No private JITTEROFF service is required by this repository.

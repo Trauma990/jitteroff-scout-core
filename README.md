@@ -1,5 +1,7 @@
 # JITTEROFF Scout Core
 
+[![CI](https://github.com/Trauma990/jitteroff-scout-core/actions/workflows/ci.yml/badge.svg)](https://github.com/Trauma990/jitteroff-scout-core/actions/workflows/ci.yml)
+
 Scout Core is a local, opt-in endpoint diagnostic CLI for software maintainers. A small JSON profile declares public DNS hosts and expected HTTP status codes. Scout runs DNS, TCP, TLS and HTTP/1.1 checks, then writes a bounded report to a path you choose. It does **not** capture packets, scan IP ranges, change network settings, upload reports, use service account credentials or depend on JITTEROFF infrastructure.
 
 This is an early **0.1 development implementation**, not a released diagnostic product. See [status and known gaps](docs/STATUS.md) before using it. A completed command is not proof that an application works or that a network problem has a particular cause.

@@ -1,6 +1,6 @@
 # Public-source preflight — 2026-11-20
 
-Scope reviewed: staged source and documentation only. No existing JITTEROFF application source or server configuration was copied. The current repository has no remote yet; this is a local preflight, not a GitHub publication result.
+Scope reviewed: staged source and documentation only. No existing JITTEROFF application source or server configuration was copied. At the time of this preflight, the repository had no remote. The later publication result is recorded in [stage 3 evidence](2026-11-20-stage-3-publication.md).
 
 - `git diff --cached --check`: no whitespace errors.
 - Staged paths were checked for `bin/`, `obj/`, `artifacts/`, `reports/`, executable, archive, key, certificate and environment-file extensions: none included.
