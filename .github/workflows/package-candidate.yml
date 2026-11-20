@@ -31,7 +31,7 @@ jobs:
       - name: Test locked source
         shell: pwsh
         run: |
-          dotnet restore --locked-mode
+          dotnet restore --locked-mode -p:SelfContained=true -p:RuntimeFrameworkVersion=10.0.11
           if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
           dotnet test --no-restore --configuration Release -p:ScoutCommit=$env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
@@ -41,11 +41,17 @@ jobs:
           RID: ${{ matrix.rid }}
         run: |
           $drop = Join-Path 'artifacts' $env:RID
-          dotnet publish src/Scout.Cli/Scout.Cli.csproj --configuration Release --runtime $env:RID --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -p:RuntimeFrameworkVersion=10.0.11 -p:RestoreLockedMode=false -p:DebugType=None -p:DebugSymbols=false -p:ScoutCommit=$env:GITHUB_SHA --output $drop
+          dotnet publish src/Scout.Cli/Scout.Cli.csproj --configuration Release --runtime $env:RID --self-contained true --no-restore -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -p:RuntimeFrameworkVersion=10.0.11 -p:DebugType=None -p:DebugSymbols=false -p:ScoutCommit=$env:GITHUB_SHA --output $drop
           if ($LASTEXITCODE -ne 0) { throw 'Candidate publish failed.' }
           Copy-Item LICENSE $drop
           Copy-Item README.md $drop
           Copy-Item examples/public-web.json $drop
+          $packageRoot = ((dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', '').Trim()
+          $runtimePack = Join-Path $packageRoot "microsoft.netcore.app.runtime.$env:RID/10.0.11"
+          if (-not (Test-Path (Join-Path $runtimePack 'LICENSE.TXT')) -or -not (Test-Path (Join-Path $runtimePack 'THIRD-PARTY-NOTICES.TXT'))) { throw 'Runtime license notices are missing.' }
+          Copy-Item (Join-Path $runtimePack 'LICENSE.TXT') (Join-Path $drop 'DOTNET-RUNTIME-LICENSE.txt')
+          Copy-Item (Join-Path $runtimePack 'THIRD-PARTY-NOTICES.TXT') (Join-Path $drop 'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt')
+          Copy-Item docs/THIRD-PARTY-LICENSES.md $drop
           $binary = Join-Path $drop $(if ($env:RID -eq 'win-x64') { 'Scout.Cli.exe' } else { 'Scout.Cli' })
           & $binary plan (Join-Path $drop 'public-web.json')
           if ($LASTEXITCODE -ne 0) { throw 'Candidate smoke test failed.' }

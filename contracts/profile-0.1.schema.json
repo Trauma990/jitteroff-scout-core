@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": { "const": "0.1" },
     "profile_id": { "$ref": "#/$defs/id" },
-    "profile_version": { "type": "string", "maxLength": 64, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "profile_version": { "type": "string", "maxLength": 64, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?![\\s\\S])" },
     "endpoints": {
       "type": "array", "minItems": 1, "maxItems": 10,
       "items": {
@@ -16,7 +16,7 @@
         "required": ["endpoint_id", "host", "port", "checks"],
         "properties": {
           "endpoint_id": { "$ref": "#/$defs/id" },
-          "host": { "type": "string", "minLength": 4, "maxLength": 253, "pattern": "^[a-z0-9.-]+$" },
+          "host": { "type": "string", "minLength": 4, "maxLength": 253, "pattern": "^(?=.{4,253}(?![\\s\\S]))(?=.*\\.)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?![0-9]+(?![\\s\\S]))[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?![\\s\\S])" },
           "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
           "checks": {
             "oneOf": [
@@ -27,8 +27,8 @@
             ]
           },
           "http_method": { "enum": ["HEAD", "GET"] },
-          "http_path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^/(?!/)[^?#\\\\\\x00-\\x1f]*$" },
-          "expected_status": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "type": "integer", "minimum": 100, "maximum": 599 } }
+          "http_path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^/(?!/)(?!.*[?#\\\\])[!-~]*(?![\\s\\S])" },
+          "expected_status": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "type": "integer", "minimum": 200, "maximum": 599 } }
         },
         "if": { "properties": { "checks": { "const": ["dns", "tcp", "tls", "http"] } }, "required": ["checks"] },
         "then": { "required": ["http_method", "http_path", "expected_status"] },
@@ -36,5 +36,5 @@
       }
     }
   },
-  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$" } }
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*(?![\\s\\S])" } }
 }

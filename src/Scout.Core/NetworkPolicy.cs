@@ -19,7 +19,7 @@ public sealed class PublicAddressPolicy : IAddressPolicy
             if (b[0] == 100 && b[1] is >= 64 and <= 127) return false;
             if (b[0] == 169 && b[1] == 254) return false;
             if (b[0] == 172 && b[1] is >= 16 and <= 31) return false;
-            if (b[0] == 192 && (b[1] == 168 || b[1] == 0 || b[1] == 2)) return false;
+            if (b[0] == 192 && (b[1] == 168 || b[1] == 0 && b[2] == 0 || b[1] == 0 && b[2] == 2)) return false;
             if (b[0] == 192 && b[1] == 88 && b[2] == 99) return false; // deprecated 6to4 relay
             if (b[0] == 198 && (b[1] is 18 or 19 || b[1] == 51 && b[2] == 100)) return false;
             if (b[0] == 203 && b[1] == 0 && b[2] == 113) return false;
@@ -56,20 +56,20 @@ public static class ReportValidator
         "resolved", "connected", "certificate_valid", "expected_status", "unexpected_status", "dns_no_answer",
         "address_policy", "user_cancelled", "budget_exhausted", "timeout", "tls_validation_failed",
         "network_error", "io_error", "probe_error", "dependency_failed", "http_incomplete_headers",
-        "http_headers_too_large", "http_invalid_status"
+        "http_headers_too_large", "http_invalid_status", "http_switching_protocols", "http_too_many_informational"
     ], StringComparer.Ordinal);
     public static void Validate(RunReport report)
     {
         if (report.SchemaVersion != ScoutContract.ReportSchema || report.PolicyVersion != ScoutContract.PolicyVersion || report.SamplesRequested is < 1 or > 3 || report.Aggregation != "none") throw new InvalidDataException("Invalid report contract.");
         if (report.RunStatus is not ("complete" or "partial" or "cancelled" or "error")) throw new InvalidDataException("Invalid run_status.");
         if (report.ProfileDigest is null || report.ProfileDigest.Length != 64 || !report.ProfileDigest.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) throw new InvalidDataException("Invalid profile digest.");
-        if (report.ProfileId is null || report.ProfileVersion is null || report.Platform is null || report.ToolVersion is null || report.ToolCommit is null || report.PrivacySummary is null || report.PrivacySummary.Mode != "ephemeral_hmac" || report.PrivacySummary.Warning is null) throw new InvalidDataException("Missing report metadata.");
+        if (!Guid.TryParseExact(report.ReportId, "D", out _) || !ValidId(report.ProfileId) || !ValidVersion(report.ProfileVersion) || !ValidVersion(report.ToolVersion) || report.StartedAtUtc.Offset != TimeSpan.Zero || report.DurationMs < 0 || report.Platform is null || report.Platform.Length is < 1 or > 256 || report.ToolCommit is null || report.PrivacySummary is null || report.PrivacySummary.Mode != "ephemeral_hmac" || report.PrivacySummary.Warning is null) throw new InvalidDataException("Invalid report metadata.");
         if (report.ToolCommit != "unknown" && (report.ToolCommit.Length != 40 || !report.ToolCommit.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))) throw new InvalidDataException("Invalid tool commit.");
         if (report.PlannedChecks is null || report.Checks is null || report.PlannedChecks.Count is < 1 or > 120 || report.Checks.Count > report.PlannedChecks.Count) throw new InvalidDataException("Invalid check count.");
         var planned = new HashSet<(string, string, int)>();
         foreach (var check in report.PlannedChecks)
         {
-            if (!planned.Add((check.EndpointId, check.Probe, check.SampleIndex)) || !ScoutContract.ProbeOrder.Contains(check.Probe) || check.SampleIndex < 0 || check.SampleIndex >= report.SamplesRequested) throw new InvalidDataException("Invalid planned checks.");
+            if (!ValidId(check.EndpointId) || !planned.Add((check.EndpointId, check.Probe, check.SampleIndex)) || !ScoutContract.ProbeOrder.Contains(check.Probe) || check.SampleIndex < 0 || check.SampleIndex >= report.SamplesRequested) throw new InvalidDataException("Invalid planned checks.");
         }
         if (planned.Select(x => x.Item1).Distinct(StringComparer.Ordinal).Count() > 10) throw new InvalidDataException("Too many endpoints.");
         foreach (var group in report.PlannedChecks.GroupBy(x => (x.EndpointId, x.SampleIndex)))
@@ -92,6 +92,13 @@ public static class ReportValidator
             if (!planned.Contains(key) || !actual.Add(key) || !ScoutContract.FinalStatuses.Contains(check.Status) || !Reasons.Contains(check.ReasonCode) || check.DurationMs < 0) throw new InvalidDataException("Invalid check result.");
             if (!ValidStatusReason(check)) throw new InvalidDataException("Status and reason disagree.");
             if (check.AddressFamily is not null and not ("ipv4" or "ipv6") || check.AddressToken is not null && (check.AddressToken.Length != 67 || !check.AddressToken.StartsWith("ip_", StringComparison.Ordinal) || !check.AddressToken[3..].All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) || check.RevocationCheck is not null and not "not_performed" || check.HttpStatus is < 100 or > 599) throw new InvalidDataException("Invalid check metadata.");
+            if ((check.AddressFamily is null) != (check.AddressToken is null) ||
+                check.Status == "pass" && check.AddressFamily is null ||
+                check.Probe is "dns" or "tcp" && (check.RevocationCheck is not null || check.HttpStatus is not null) ||
+                check.Probe == "tls" && (check.HttpStatus is not null || check.Status == "pass" && check.RevocationCheck != "not_performed") ||
+                check.Probe == "http" && (check.Status == "pass" || check.ReasonCode == "unexpected_status") && (check.HttpStatus is null or < 200 or > 599 || check.RevocationCheck != "not_performed") ||
+                check.Probe == "http" && check.ReasonCode != "unexpected_status" && check.Status != "pass" && check.HttpStatus is not null)
+                throw new InvalidDataException("Missing or incompatible probe metadata.");
             if (check.Status == "skipped" && check.ReasonCode == "dependency_failed")
             {
                 var position = ScoutContract.ProbeOrder.ToList().IndexOf(check.Probe);
@@ -101,13 +108,23 @@ public static class ReportValidator
         if (report.RunStatus == "complete" && (actual.Count != planned.Count || report.Checks.Any(x => x.Status is "inconclusive" or "blocked" or "cancelled" || x.Status == "skipped" && x.ReasonCode != "dependency_failed"))) throw new InvalidDataException("Incomplete run cannot report complete.");
         if (report.RunStatus == "partial" && actual.Count == planned.Count && report.Checks.All(x => x.Status is "pass" or "fail" || x.Status == "skipped" && x.ReasonCode == "dependency_failed")) throw new InvalidDataException("Complete run cannot report partial.");
     }
+    private static bool ValidId(string? id) => id is not null && id.Length is >= 1 and <= 64 &&
+        (id[0] is >= 'a' and <= 'z' or >= '0' and <= '9') &&
+        id.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-');
+    private static bool ValidVersion(string? version) => version is not null && version.Length is >= 5 and <= 64 && System.Text.RegularExpressions.Regex.IsMatch(version, @"^[0-9]+\.[0-9]+\.[0-9]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     private static bool ValidStatusReason(CheckResult check) => check.Status switch
     {
         "pass" => check.ReasonCode == check.Probe switch
         {
             "dns" => "resolved", "tcp" => "connected", "tls" => "certificate_valid", "http" => "expected_status", _ => ""
         },
-        "fail" => check.ReasonCode is "dns_no_answer" or "timeout" or "network_error" or "io_error" or "tls_validation_failed" or "http_incomplete_headers" or "http_headers_too_large" or "http_invalid_status" or "unexpected_status",
+        "fail" => check.ReasonCode is "timeout" or "network_error" or "io_error" || (check.Probe switch
+        {
+            "dns" => check.ReasonCode == "dns_no_answer",
+            "tls" => check.ReasonCode == "tls_validation_failed",
+            "http" => check.ReasonCode is "tls_validation_failed" or "http_incomplete_headers" or "http_headers_too_large" or "http_invalid_status" or "http_switching_protocols" or "http_too_many_informational" or "unexpected_status",
+            _ => false
+        }),
         "inconclusive" => check.ReasonCode == "probe_error",
         "blocked" => check.ReasonCode == "address_policy",
         "skipped" => check.ReasonCode is "dependency_failed" or "budget_exhausted",
