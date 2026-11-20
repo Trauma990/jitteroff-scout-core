@@ -51,11 +51,13 @@ Open `report.json` before sharing it. `run` requires an existing output director
 The [example profile](examples/public-web.json) checks `example.com` with `HEAD /` and expects HTTP 200. Your own UTF-8 JSON profile can specify these ordered checks:
 
 1. **DNS:** resolve the hostname and reject the entire answer if any address is non-public.
-2. **TCP:** connect to a validated IP. The recorded duration is connection time, **not ping**.
+2. **TCP:** re-resolve, apply the address policy, then connect to a validated IP. The recorded probe duration includes these steps; it is **not ping**.
 3. **TLS:** verify certificate hostname and chain. Online revocation is explicitly **not checked**.
-4. **HTTP/1.1:** send a `HEAD` or `GET` request with the original hostname for TLS and `Host`, then record the status code. Redirects are never followed and response bodies are not retained.
+4. **HTTP/1.1:** send a `HEAD` or `GET` request with the original hostname for TLS and `Host`, then record the **final** status code. Informational `1xx` responses are not accepted as a result; `101` is unsupported. Redirects are never followed and response bodies are not retained.
 
 The checks must form an ordered prefix: `dns`, `dns,tcp`, `dns,tcp,tls`, or `dns,tcp,tls,http`. Scout resolves again before each check, validates all returned addresses, and gives the socket a concrete approved IP. Profiles are limited to 128 KiB and 10 endpoints; a run takes up to 3 samples within a 90-second total budget. See the [0.1 contract](docs/CONTRACT-0.1.md) and [profile schema](contracts/profile-0.1.schema.json) for exact fields and limits. The C# parser is authoritative where generic JSON Schema cannot express a rule.
+
+Library callers that construct `Profile` records directly receive the same model validation at the public runner boundary. The library does not provide the CLI's file-digest consent ceremony; embedding applications must obtain their own authorization before running probes.
 
 Other commands:
 
@@ -91,10 +93,10 @@ The security tests include a real local DNS server changing its answer mid-run, 
 
 The source, [architecture decision](docs/ADR-0001.md), [contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), English docs, and [Persian introduction](docs/README.fa.md) are public. CI builds and tests on Windows and Ubuntu. A separate [manual packaging workflow](.github/workflows/package-candidate.yml) makes short-lived **candidate** archives with SHA-256 checksums and SPDX SBOMs; those artifacts are not a release.
 
-The [release gate](https://github.com/Trauma990/jitteroff-scout-core/issues/3) remains open for a clean Windows test on a host without .NET installed and final license review. There is no `v0.1.0` release tag yet. Current evidence and known limitations are in [STATUS.md](docs/STATUS.md).
+Use [GitHub Releases](https://github.com/Trauma990/jitteroff-scout-core/releases) for tagged downloads. The [release checklist](https://github.com/Trauma990/jitteroff-scout-core/issues/3) and [status evidence](docs/STATUS.md) record validation and known limitations. [Distributed component license notes](docs/THIRD-PARTY-LICENSES.md) describe the binary archives.
 
 ## Contributing, security, and license
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before a pull request. Keep all code and examples independent of private JITTEROFF infrastructure. Report security issues through the [private vulnerability reporting route](SECURITY.md), not a public exploit issue.
 
-Scout Core and its original project artwork are distributed under [Apache-2.0](LICENSE). The generated README illustration has its [own provenance note](assets/README.md). Third-party runtime license declarations in candidate SBOMs remain under review before a formal release.
+Scout Core and its original project artwork are distributed under [Apache-2.0](LICENSE). The generated README illustration has its [own provenance note](assets/README.md). Self-contained binaries embed .NET runtime components with separate terms; the Windows binary includes Microsoft's .NET Library License text. Review the [component license notes](docs/THIRD-PARTY-LICENSES.md) before redistributing a binary.

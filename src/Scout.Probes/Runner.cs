@@ -48,6 +48,17 @@ public sealed class Runner
     }
     public async Task<RunReport> RunAsync(Profile profile, int samples, CancellationToken cancellationToken = default)
     {
+        if (profile is null || profile.Endpoints is null) throw new ProfileException("Invalid profile model.");
+        // Freeze caller-owned lists before validation and probing so they cannot change after the check.
+        var endpoints = profile.Endpoints.Select(endpoint => endpoint is null
+            ? throw new ProfileException("Invalid endpoint.")
+            : endpoint with
+            {
+                Checks = endpoint.Checks?.ToArray() ?? throw new ProfileException("Invalid checks."),
+                ExpectedStatus = endpoint.ExpectedStatus?.ToArray()
+            }).ToArray();
+        profile = profile with { Endpoints = endpoints };
+        ProfileParser.ValidateModel(profile);
         if (samples is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(samples));
         var planned = (from sample in Enumerable.Range(0, samples) from endpoint in profile.Endpoints from probe in endpoint.Checks select new PlannedCheck(endpoint.EndpointId, probe, sample)).ToArray();
         var results = new List<CheckResult>();

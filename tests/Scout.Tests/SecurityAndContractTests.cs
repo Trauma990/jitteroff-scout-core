@@ -165,6 +165,36 @@ public class SecurityAndContractTests
     }
 
     [Fact]
+    public void ImportedHttpPassWithoutFinalStatusIsRejected()
+    {
+        var report = Report("partial", [new CheckResult("web", "http", 0, "pass", "expected_status", 1,
+            "ipv4", "ip_" + new string('a', 64), null, "not_performed")]) with
+        {
+            PlannedChecks = [new PlannedCheck("web", "dns", 0), new PlannedCheck("web", "tcp", 0),
+                new PlannedCheck("web", "tls", 0), new PlannedCheck("web", "http", 0)]
+        };
+        Assert.Throws<InvalidDataException>(() => Reports.ToJson(report));
+        Assert.Throws<InvalidDataException>(() => Reports.ToHtml(report));
+    }
+
+    [Fact]
+    public void ImportedDnsPassWithoutAddressEvidenceIsRejected()
+    {
+        var report = Report("complete", [new CheckResult("web", "dns", 0, "pass", "resolved", 1)]) with
+        {
+            Checks = [new CheckResult("web", "dns", 0, "pass", "resolved", 1)]
+        };
+        Assert.Throws<InvalidDataException>(() => ReportValidator.Validate(report));
+    }
+
+    [Fact]
+    public void ImportedDnsFailureCannotClaimHttpReason()
+    {
+        var report = Report("complete", [new CheckResult("web", "dns", 0, "fail", "unexpected_status", 1)]);
+        Assert.Throws<InvalidDataException>(() => Reports.ToJson(report));
+    }
+
+    [Fact]
     public void MissingRequestedSampleCannotClaimComplete()
     {
         var report = Report("complete", [new CheckResult("web", "dns", 0, "pass", "resolved", 1)]) with { SamplesRequested = 2 };
@@ -202,22 +232,18 @@ public class SecurityAndContractTests
     }
 
     [Fact]
-    public void HtmlEscapesInjectedIdentifierAndContainsNoScript()
+    public void HtmlRejectsInjectedIdentifier()
     {
         var report = Report("complete", [new CheckResult("<script>alert(1)</script>", "dns", 0, "pass", "resolved", 1)], "<script>alert(1)</script>");
-        var html = Reports.ToHtml(report);
-        Assert.DoesNotContain("<script>", html);
-        Assert.Contains("&lt;script&gt;", html);
+        Assert.Throws<InvalidDataException>(() => Reports.ToHtml(report));
     }
 
     [Fact]
-    public void MarkdownEscapesInjectedLinkSyntax()
+    public void MarkdownRejectsInjectedIdentifier()
     {
         var id = "[click](https://attacker.example)";
         var report = Report("complete", [new CheckResult(id, "dns", 0, "pass", "resolved", 1)], id);
-        var markdown = Reports.ToMarkdown(report);
-        Assert.DoesNotContain(id, markdown);
-        Assert.Contains("\\[click\\]\\(", markdown);
+        Assert.Throws<InvalidDataException>(() => Reports.ToMarkdown(report));
     }
 
     [Fact]
@@ -237,7 +263,8 @@ public class SecurityAndContractTests
 
     private static RunReport Report(string runStatus, IReadOnlyList<CheckResult> checks, string id = "web") => new(
         "0.1", Guid.NewGuid().ToString(), "0.1.0", "unknown", "public-demo", "0.1.0", new string('a', 64), DateTimeOffset.UtcNow,
-        1, "test", ScoutContract.PolicyVersion, 1, "none", runStatus, [new PlannedCheck(id, "dns", 0)], checks,
+        1, "test", ScoutContract.PolicyVersion, 1, "none", runStatus, [new PlannedCheck(id, "dns", 0)],
+        checks.Select(x => x.Status == "pass" ? x with { AddressFamily = "ipv4", AddressToken = "ip_" + new string('a', 64) } : x).ToArray(),
         new PrivacySummary("ephemeral_hmac", "Not full anonymization."));
 
     private sealed class CountingConnector : IConnectionFactory

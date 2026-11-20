@@ -2,9 +2,22 @@ name: Package candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      package_version:
+        description: Version label for the archive and SBOM
+        required: true
+        default: 0.1.0-dev
+        type: choice
+        options:
+          - 0.1.0-dev
+          - 0.1.0
 
 permissions:
   contents: read
+
+env:
+  RUNTIME_VERSION: 10.0.15
+  PACKAGE_VERSION: ${{ inputs.package_version }}
 
 jobs:
   package:
@@ -27,11 +40,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
-          dotnet-version: 10.0.300
+          dotnet-version: 10.0.404
       - name: Test locked source
         shell: pwsh
         run: |
-          dotnet restore --locked-mode
+          if ($env:PACKAGE_VERSION -notin @('0.1.0-dev', '0.1.0')) { throw 'Unsupported package version.' }
+          if ($env:PACKAGE_VERSION -eq '0.1.0' -and $env:GITHUB_REF -ne 'refs/heads/main') { throw 'Final packages must be built from main.' }
+          dotnet restore --locked-mode -p:SelfContained=true -p:RuntimeFrameworkVersion=$env:RUNTIME_VERSION
           if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
           dotnet test --no-restore --configuration Release -p:ScoutCommit=$env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
@@ -41,11 +56,20 @@ jobs:
           RID: ${{ matrix.rid }}
         run: |
           $drop = Join-Path 'artifacts' $env:RID
-          dotnet publish src/Scout.Cli/Scout.Cli.csproj --configuration Release --runtime $env:RID --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -p:RuntimeFrameworkVersion=10.0.11 -p:RestoreLockedMode=false -p:DebugType=None -p:DebugSymbols=false -p:ScoutCommit=$env:GITHUB_SHA --output $drop
+          dotnet publish src/Scout.Cli/Scout.Cli.csproj --configuration Release --runtime $env:RID --self-contained true --no-restore -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -p:RuntimeFrameworkVersion=$env:RUNTIME_VERSION -p:DebugType=None -p:DebugSymbols=false -p:ScoutCommit=$env:GITHUB_SHA --output $drop
           if ($LASTEXITCODE -ne 0) { throw 'Candidate publish failed.' }
           Copy-Item LICENSE $drop
           Copy-Item README.md $drop
           Copy-Item examples/public-web.json $drop
+          $packageRoot = ((dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', '').Trim()
+          $runtimePack = Join-Path $packageRoot "microsoft.netcore.app.runtime.$env:RID/$env:RUNTIME_VERSION"
+          if (-not (Test-Path (Join-Path $runtimePack 'LICENSE.TXT')) -or -not (Test-Path (Join-Path $runtimePack 'THIRD-PARTY-NOTICES.TXT'))) { throw 'Runtime license notices are missing.' }
+          Copy-Item (Join-Path $runtimePack 'LICENSE.TXT') (Join-Path $drop 'DOTNET-RUNTIME-LICENSE.txt')
+          Copy-Item (Join-Path $runtimePack 'THIRD-PARTY-NOTICES.TXT') (Join-Path $drop 'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt')
+          if ($env:RID -eq 'win-x64') {
+            Copy-Item third_party/dotnet/windows-runtime-10.0.15-LICENSE.txt (Join-Path $drop 'DOTNET-WINDOWS-LIBRARY-LICENSE.txt')
+          }
+          Copy-Item docs/THIRD-PARTY-LICENSES.md $drop
           $binary = Join-Path $drop $(if ($env:RID -eq 'win-x64') { 'Scout.Cli.exe' } else { 'Scout.Cli' })
           & $binary plan (Join-Path $drop 'public-web.json')
           if ($LASTEXITCODE -ne 0) { throw 'Candidate smoke test failed.' }
@@ -63,8 +87,27 @@ jobs:
           if ($env:RID -eq 'linux-x64') { & chmod +x $tool; if ($LASTEXITCODE -ne 0) { throw 'chmod failed.' } }
           $drop = (Resolve-Path (Join-Path 'artifacts' $env:RID)).Path
           $source = (Resolve-Path 'src').Path
-          & $tool generate -b $drop -bc $source -pn jitteroff-scout-core -pv 0.1.0-dev -ps JITTEROFF-Scout-Core -nsb https://github.com/Trauma990/jitteroff-scout-core
+          & $tool generate -b $drop -bc $source -pn jitteroff-scout-core -pv $env:PACKAGE_VERSION -ps JITTEROFF-Scout-Core -nsb https://github.com/Trauma990/jitteroff-scout-core
           if ($LASTEXITCODE -ne 0) { throw 'SBOM generation failed.' }
+          $packageRoot = ((dotnet nuget locals global-packages --list) -replace '^global-packages:\s*', '').Trim()
+          $runtimePack = Join-Path $packageRoot "microsoft.netcore.app.runtime.$env:RID/$env:RUNTIME_VERSION"
+          $hostPack = Join-Path $packageRoot "microsoft.netcore.app.host.$env:RID/$env:RUNTIME_VERSION"
+          if (-not (Test-Path $hostPack)) {
+            $dotnetRoot = Split-Path (Get-Command dotnet).Source -Parent
+            $hostPack = Join-Path $dotnetRoot "packs/Microsoft.NETCore.App.Host.$env:RID/$env:RUNTIME_VERSION"
+          }
+          $deps = Join-Path (Resolve-Path 'src/Scout.Cli/obj/Release/net10.0').Path "$env:RID/Scout.Cli.deps.json"
+          $manifest = Join-Path $drop '_manifest/spdx_2.2/manifest.spdx.json'
+          $curateArgs = @{
+            ManifestPath = $manifest
+            DepsPath = $deps
+            Rid = $env:RID
+            RuntimeVersion = $env:RUNTIME_VERSION
+            RuntimePackPath = $runtimePack
+            HostPackPath = $hostPack
+          }
+          if ($env:RID -eq 'win-x64') { $curateArgs.WindowsLicensePath = (Resolve-Path 'third_party/dotnet/windows-runtime-10.0.15-LICENSE.txt').Path }
+          & ./tools/curate-sbom.ps1 @curateArgs
           $validation = Join-Path $env:RUNNER_TEMP "sbom-validation-$env:RID.json"
           & $tool validate -b $drop -o $validation -mi SPDX:2.2
           if ($LASTEXITCODE -ne 0) { throw 'SBOM validation failed.' }
@@ -75,7 +118,7 @@ jobs:
           RID: ${{ matrix.rid }}
         run: |
           $drop = Join-Path 'artifacts' $env:RID
-          $name = "jitteroff-scout-core-0.1.0-dev-$env:RID.zip"
+          $name = "jitteroff-scout-core-$env:PACKAGE_VERSION-$env:RID.zip"
           $archive = Join-Path 'artifacts' $name
           Compress-Archive -Path (Join-Path $drop '*') -DestinationPath $archive -CompressionLevel Optimal
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -88,7 +131,37 @@ jobs:
         with:
           name: scout-candidate-${{ matrix.rid }}
           path: |
-            artifacts/jitteroff-scout-core-0.1.0-dev-${{ matrix.rid }}.zip
+            artifacts/jitteroff-scout-core-${{ inputs.package_version }}-${{ matrix.rid }}.zip
             artifacts/SHA256SUMS-${{ matrix.rid }}.txt
           if-no-files-found: error
           retention-days: 7
+
+  clean-windows-smoke:
+    needs: package
+    runs-on: windows-2022
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: scout-candidate-win-x64
+          path: candidate
+      - name: Run downloaded executable without .NET in Nano Server
+        shell: pwsh
+        run: |
+          $archive = (Resolve-Path "candidate/jitteroff-scout-core-$env:PACKAGE_VERSION-win-x64.zip").Path
+          $expected = ((Get-Content 'candidate/SHA256SUMS-win-x64.txt').Trim() -split '\s+')[0]
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Downloaded Windows archive checksum mismatch.' }
+          $drop = Join-Path $env:RUNNER_TEMP 'clean-windows-smoke'
+          Expand-Archive -LiteralPath $archive -DestinationPath $drop
+          @'
+          @echo off
+          where dotnet >NUL 2>&1
+          if %ERRORLEVEL% EQU 0 exit /b 17
+          if exist "C:\Program Files\dotnet\dotnet.exe" exit /b 18
+          C:\scout\Scout.Cli.exe plan C:\scout\public-web.json
+          exit /b %ERRORLEVEL%
+          '@ | Set-Content (Join-Path $drop 'clean-smoke.cmd') -Encoding ascii
+          & docker info --format '{{.OSType}} {{.ServerVersion}}'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Docker engine unavailable.' }
+          & docker run --rm --isolation=process --mount "type=bind,source=$drop,target=C:\scout,readonly" mcr.microsoft.com/windows/nanoserver@sha256:5a1c3c8308f8f5c9b67d21d2332a449d4ab8f9a6cf277f07d4aeac27ff2a0213 cmd /c C:\scout\clean-smoke.cmd
+          if ($LASTEXITCODE -ne 0) { throw "Clean Windows container smoke test failed with $LASTEXITCODE." }

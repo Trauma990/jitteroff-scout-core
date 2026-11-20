@@ -51,7 +51,7 @@ public class ReportInvariantFuzzTests
         {
             var count = random.Next(0, 4);
             var checks = Enumerable.Range(0, count)
-                .Select(sample => new CheckResult("endpoint", "dns", sample, "pass", "resolved", 1))
+                .Select(sample => new CheckResult("endpoint", "dns", sample, "pass", "resolved", 1, "ipv4", "ip_" + new string('a', 64)))
                 .ToArray();
             if (count == 3)
             {
@@ -123,7 +123,9 @@ public class ReportInvariantFuzzTests
         {
             var item = cases[random.Next(cases.Length)];
             var checks = item.CheckStatus is null ? Array.Empty<CheckResult>() :
-                [new CheckResult("public-endpoint", "dns", 0, item.CheckStatus, item.Reason!, 1)];
+                [new CheckResult("public-endpoint", "dns", 0, item.CheckStatus, item.Reason!, 1,
+                    item.CheckStatus == "pass" ? "ipv4" : null,
+                    item.CheckStatus == "pass" ? "ip_" + new string('a', 64) : null)];
             var report = new RunReport("0.1", Guid.NewGuid().ToString("D"), "0.1.0", "unknown",
                 "public-profile", "0.1.0", new string('a', 64), DateTimeOffset.UtcNow, 1,
                 "test", ScoutContract.PolicyVersion, 1, "none", item.RunStatus,
