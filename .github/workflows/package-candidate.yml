@@ -1,0 +1,94 @@
+name: Package candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            sbom_asset: sbom-tool-win-x64.exe
+            sbom_sha256: 625767b371b7fdd58f40f618b8a86da0247a33c89e419039c86b4edba1dad4b5
+          - os: ubuntu-latest
+            rid: linux-x64
+            sbom_asset: sbom-tool-linux-x64
+            sbom_sha256: bf5d4f99bc98c119d549d08fc02ae92598a7a42772f17317c01031a92632e05b
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          dotnet-version: 10.0.300
+      - name: Test locked source
+        shell: pwsh
+        run: |
+          dotnet restore --locked-mode
+          if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
+          dotnet test --no-restore --configuration Release -p:ScoutCommit=$env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+      - name: Publish self-contained candidate
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $drop = Join-Path 'artifacts' $env:RID
+          dotnet publish src/Scout.Cli/Scout.Cli.csproj --configuration Release --runtime $env:RID --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -p:RestoreLockedMode=false -p:DebugType=None -p:DebugSymbols=false -p:ScoutCommit=$env:GITHUB_SHA --output $drop
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate publish failed.' }
+          Copy-Item LICENSE $drop
+          Copy-Item README.md $drop
+          Copy-Item examples/public-web.json $drop
+          $binary = Join-Path $drop $(if ($env:RID -eq 'win-x64') { 'Scout.Cli.exe' } else { 'Scout.Cli' })
+          & $binary plan (Join-Path $drop 'public-web.json')
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate smoke test failed.' }
+      - name: Generate and validate SPDX SBOM
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+          SBOM_ASSET: ${{ matrix.sbom_asset }}
+          SBOM_SHA256: ${{ matrix.sbom_sha256 }}
+        run: |
+          $tool = Join-Path $env:RUNNER_TEMP $env:SBOM_ASSET
+          $uri = "https://github.com/microsoft/sbom-tool/releases/download/v4.1.5/$env:SBOM_ASSET"
+          Invoke-WebRequest -Uri $uri -OutFile $tool
+          if ((Get-FileHash $tool -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:SBOM_SHA256) { throw 'SBOM tool checksum mismatch.' }
+          if ($env:RID -eq 'linux-x64') { & chmod +x $tool; if ($LASTEXITCODE -ne 0) { throw 'chmod failed.' } }
+          $drop = (Resolve-Path (Join-Path 'artifacts' $env:RID)).Path
+          $source = (Resolve-Path 'src').Path
+          & $tool generate -b $drop -bc $source -pn jitteroff-scout-core -pv 0.1.0-dev -ps JITTEROFF-Scout-Core -nsb https://github.com/Trauma990/jitteroff-scout-core
+          if ($LASTEXITCODE -ne 0) { throw 'SBOM generation failed.' }
+          $validation = Join-Path $env:RUNNER_TEMP "sbom-validation-$env:RID.json"
+          & $tool validate -b $drop -o $validation -mi SPDX:2.2
+          if ($LASTEXITCODE -ne 0) { throw 'SBOM validation failed.' }
+          if (-not (Test-Path (Join-Path $drop '_manifest/spdx_2.2/manifest.spdx.json'))) { throw 'SBOM is missing.' }
+      - name: Zip and verify checksum
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $drop = Join-Path 'artifacts' $env:RID
+          $name = "jitteroff-scout-core-0.1.0-dev-$env:RID.zip"
+          $archive = Join-Path 'artifacts' $name
+          Compress-Archive -Path (Join-Path $drop '*') -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path (Join-Path 'artifacts' "SHA256SUMS-$env:RID.txt") -Value "$hash  $name" -Encoding ascii
+          $verify = Join-Path $env:RUNNER_TEMP "scout-verify-$env:RID"
+          Expand-Archive -Path $archive -DestinationPath $verify
+          if (-not (Test-Path (Join-Path $verify '_manifest/spdx_2.2/manifest.spdx.json'))) { throw 'Archived SBOM is missing.' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) { throw 'Archive checksum mismatch.' }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scout-candidate-${{ matrix.rid }}
+          path: |
+            artifacts/jitteroff-scout-core-0.1.0-dev-${{ matrix.rid }}.zip
+            artifacts/SHA256SUMS-${{ matrix.rid }}.txt
+          if-no-files-found: error
+          retention-days: 7
