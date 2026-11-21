@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Scout.Probes\Scout.Probes.csproj" />
     <ProjectReference Include="..\..\src\Scout.Privacy\Scout.Privacy.csproj" />
     <ProjectReference Include="..\..\src\Scout.Reporting\Scout.Reporting.csproj" />
+    <ProjectReference Include="..\..\src\Scout.Cli\Scout.Cli.csproj" />
   </ItemGroup>
 
 </Project>

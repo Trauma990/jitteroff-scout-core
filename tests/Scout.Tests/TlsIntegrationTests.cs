@@ -14,6 +14,38 @@ namespace Scout.Tests;
 public class TlsIntegrationTests
 {
     [Fact]
+    public async Task EmptyDnsAtHttpProbeReturnsAValidFailureReport()
+    {
+        using var cert = CreateCertificate("example.com", false);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var endpoint = new Endpoint("web", "example.com", port, ["dns", "tcp", "tls", "http"], "GET", "/", [200]);
+            var profile = new Profile("0.1", "fixture", "0.1.0", [endpoint], new string('a', 64));
+            var server = Task.Run(async () =>
+            {
+                using var tcp = await listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                tcp.Close();
+                using var tlsTcp = await listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                using var tls = new SslStream(tlsTcp.GetStream(), false);
+                try { await tls.AuthenticateAsServerAsync(cert); await tls.ReadExactlyAsync(new byte[1]); }
+                catch (IOException) { }
+            });
+            var resolver = new EmptyAtFourthResolver();
+            var report = await new Runner(resolver, new LoopbackFixturePolicy(), new SocketConnectionFactory(), () => TrustFixture(cert)).RunAsync(profile, 1);
+            await server.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(4, resolver.Calls);
+            Assert.Equal("complete", report.RunStatus);
+            Assert.Equal(["pass", "pass", "pass", "fail"], report.Checks.Select(x => x.Status));
+            Assert.Equal("dns_no_answer", report.Checks[^1].ReasonCode);
+            Assert.Equal(1, ReportOutcome.ExitCode(Reports.FromJson(Encoding.UTF8.GetBytes(Reports.ToJson(report)))));
+        }
+        finally { listener.Stop(); }
+    }
+
+    [Fact]
     public async Task UntrustedCertificateChainIsRejected()
     {
         using var cert = CreateCertificate("example.com", false);
@@ -142,6 +174,12 @@ public class TlsIntegrationTests
     private sealed class FixedResolver : IResolver
     {
         public Task<IPAddress[]> ResolveAsync(string host, CancellationToken cancellationToken) => Task.FromResult(new[] { IPAddress.Loopback });
+    }
+    private sealed class EmptyAtFourthResolver : IResolver
+    {
+        public int Calls { get; private set; }
+        public Task<IPAddress[]> ResolveAsync(string host, CancellationToken cancellationToken) =>
+            Task.FromResult(++Calls == 4 ? Array.Empty<IPAddress>() : [IPAddress.Loopback]);
     }
     private sealed class LoopbackFixturePolicy : IAddressPolicy
     {

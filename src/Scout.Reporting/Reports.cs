@@ -10,6 +10,14 @@ namespace Scout.Reporting;
 
 public static class Reports
 {
+    private static readonly string[] RequiredReportFields = [
+        "schema_version", "report_id", "tool_version", "tool_commit", "profile_id", "profile_version",
+        "profile_digest", "started_at_utc", "duration_ms", "platform", "policy_version",
+        "samples_requested", "aggregation", "run_status", "planned_checks", "checks", "privacy_summary"
+    ];
+    private static readonly string[] RequiredPlannedFields = ["endpoint_id", "probe", "sample_index"];
+    private static readonly string[] RequiredResultFields = ["endpoint_id", "probe", "sample_index", "status", "reason_code", "duration_ms"];
+    private static readonly string[] RequiredPrivacyFields = ["mode", "warning"];
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -27,9 +35,31 @@ public static class Reports
     public static RunReport FromJson(byte[] bytes)
     {
         if (bytes.Length is 0 or > 2 * 1024 * 1024) throw new InvalidDataException("Report size is invalid.");
+        using (var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 }))
+        {
+            var root = document.RootElement;
+            RequireFields(root, RequiredReportFields);
+            var planned = root.GetProperty("planned_checks");
+            var checks = root.GetProperty("checks");
+            if (planned.ValueKind != JsonValueKind.Array || checks.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("Invalid report check arrays.");
+            foreach (var item in planned.EnumerateArray()) RequireFields(item, RequiredPlannedFields);
+            foreach (var item in checks.EnumerateArray()) RequireFields(item, RequiredResultFields);
+            RequireFields(root.GetProperty("privacy_summary"), RequiredPrivacyFields);
+        }
         var report = JsonSerializer.Deserialize<RunReport>(bytes, JsonOptions) ?? throw new InvalidDataException("Invalid report.");
         ReportValidator.Validate(report);
         return report;
+    }
+    private static void RequireFields(JsonElement item, IEnumerable<string> required)
+    {
+        if (item.ValueKind != JsonValueKind.Object) throw new InvalidDataException("Expected report object.");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in item.EnumerateObject())
+            if (!seen.Add(property.Name)) throw new InvalidDataException("Duplicate report field.");
+        foreach (var field in required)
+            if (!item.TryGetProperty(field, out var value) || value.ValueKind == JsonValueKind.Null)
+                throw new InvalidDataException($"Missing or null report field: {field}.");
     }
     public static string ToMarkdown(RunReport report)
     {

@@ -117,6 +117,8 @@ jobs:
           & $tool validate -b $drop -o $validation -mi SPDX:2.2
           if ($LASTEXITCODE -ne 0) { throw 'SBOM validation failed.' }
           if (-not (Test-Path (Join-Path $drop '_manifest/spdx_2.2/manifest.spdx.json'))) { throw 'SBOM is missing.' }
+          $digestFile = "$manifest.sha256"
+          if (-not (Test-Path $digestFile) -or (Get-Content $digestFile -Raw).Trim() -ne (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Curated SBOM digest mismatch.' }
       - name: Zip and verify checksum
         shell: pwsh
         env:
@@ -124,13 +126,23 @@ jobs:
         run: |
           $drop = Join-Path 'artifacts' $env:RID
           $name = "jitteroff-scout-core-$env:PACKAGE_VERSION-$env:RID.zip"
-          $archive = Join-Path 'artifacts' $name
-          Compress-Archive -Path (Join-Path $drop '*') -DestinationPath $archive -CompressionLevel Optimal
+          $archive = Join-Path (Resolve-Path 'artifacts').Path $name
+          if ($env:RID -eq 'linux-x64') {
+            # zip records Unix permission bits; Compress-Archive loses the executable mode.
+            $entries = @(Get-ChildItem -LiteralPath $drop -Force | ForEach-Object Name)
+            Push-Location $drop
+            try { & zip -q -r $archive @entries; if ($LASTEXITCODE -ne 0) { throw 'Linux ZIP packaging failed.' } }
+            finally { Pop-Location }
+          } else {
+            Compress-Archive -Path (Join-Path $drop '*') -DestinationPath $archive -CompressionLevel Optimal
+          }
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -Path (Join-Path 'artifacts' "SHA256SUMS-$env:RID.txt") -Value "$hash  $name" -Encoding ascii
           $verify = Join-Path $env:RUNNER_TEMP "scout-verify-$env:RID"
           Expand-Archive -Path $archive -DestinationPath $verify
           if (-not (Test-Path (Join-Path $verify '_manifest/spdx_2.2/manifest.spdx.json'))) { throw 'Archived SBOM is missing.' }
+          $manifest = Join-Path $verify '_manifest/spdx_2.2/manifest.spdx.json'
+          if ((Get-Content "$manifest.sha256" -Raw).Trim() -ne (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Archived SBOM digest mismatch.' }
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) { throw 'Archive checksum mismatch.' }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -171,9 +183,30 @@ jobs:
           & docker run --rm --isolation=process --mount "type=bind,source=$drop,target=C:\scout,readonly" mcr.microsoft.com/windows/nanoserver@sha256:5a1c3c8308f8f5c9b67d21d2332a449d4ab8f9a6cf277f07d4aeac27ff2a0213 cmd /c C:\scout\clean-smoke.cmd
           if ($LASTEXITCODE -ne 0) { throw "Clean Windows container smoke test failed with $LASTEXITCODE." }
 
+  clean-linux-smoke:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: scout-candidate-linux-x64
+          path: candidate
+      - name: Run downloaded Linux executable from extracted archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          tr -d '\r' < SHA256SUMS-linux-x64.txt | sha256sum --check -
+          mkdir extracted
+          unzip -q "jitteroff-scout-core-${PACKAGE_VERSION}-linux-x64.zip" -d extracted
+          cd extracted
+          test -x ./Scout.Cli
+          test "$(sha256sum _manifest/spdx_2.2/manifest.spdx.json | cut -d ' ' -f1)" = "$(cat _manifest/spdx_2.2/manifest.spdx.json.sha256)"
+          ./Scout.Cli plan public-web.json
+
   release:
     if: ${{ inputs.publish_release && inputs.package_version == '0.1.0' && github.ref == 'refs/heads/main' }}
-    needs: [package, clean-windows-smoke]
+    needs: [package, clean-windows-smoke, clean-linux-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -209,11 +242,16 @@ jobs:
                   required = {'LICENSE', 'README.md', 'THIRD-PARTY-LICENSES.md',
                               'DOTNET-RUNTIME-LICENSE.txt',
                               'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt',
-                              '_manifest/spdx_2.2/manifest.spdx.json', 'public-web.json'}
+                              '_manifest/spdx_2.2/manifest.spdx.json',
+                              '_manifest/spdx_2.2/manifest.spdx.json.sha256', 'public-web.json'}
                   required.add('Scout.Cli.exe' if rid == 'win-x64' else 'Scout.Cli')
                   if not required.issubset(names):
                       raise SystemExit(f'{rid}: required files missing: {required - names}')
                   sbom = json.loads(package.read('_manifest/spdx_2.2/manifest.spdx.json'))
+                  sbom_bytes = package.read('_manifest/spdx_2.2/manifest.spdx.json')
+                  digest = package.read('_manifest/spdx_2.2/manifest.spdx.json.sha256').decode('ascii').strip()
+                  if hashlib.sha256(sbom_bytes).hexdigest() != digest:
+                      raise SystemExit(f'{rid}: SBOM digest mismatch')
                   packages = {item['name']: item['licenseConcluded'] for item in sbom['packages']}
                   expected = {'jitteroff-scout-core': 'Apache-2.0',
                               f'Microsoft.NETCore.App.Runtime.{rid}':

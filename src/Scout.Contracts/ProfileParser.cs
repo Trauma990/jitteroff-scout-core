@@ -126,7 +126,7 @@ public static partial class ProfileParser
         catch (ArgumentException) { throw new ProfileException("Invalid IDN hostname."); }
     }
     private static bool ValidPath(string path) => path.Length is >= 1 and <= 1024 && path[0] == '/' && !path.StartsWith("//", StringComparison.Ordinal) && !path.Any(c => c is '?' or '#' or '\\' || c < '!' || c > '~');
-    [GeneratedRegex("^[a-z0-9][a-z0-9._-]*$", RegexOptions.CultureInvariant)] private static partial Regex IdRegex();
-    [GeneratedRegex("^[0-9]+\\.[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant)] private static partial Regex VersionRegex();
-    [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$", RegexOptions.CultureInvariant)] private static partial Regex LabelRegex();
+    [GeneratedRegex("\\A[a-z0-9][a-z0-9._-]*\\z", RegexOptions.CultureInvariant)] private static partial Regex IdRegex();
+    [GeneratedRegex("\\A[0-9]+\\.[0-9]+\\.[0-9]+\\z", RegexOptions.CultureInvariant)] private static partial Regex VersionRegex();
+    [GeneratedRegex("\\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\z", RegexOptions.CultureInvariant)] private static partial Regex LabelRegex();
 }

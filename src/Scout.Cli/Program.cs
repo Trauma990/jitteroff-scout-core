@@ -63,7 +63,7 @@ static async Task<int> MainAsync(string[] args)
         }
     }
     catch (OperationCanceledException) { Console.Error.WriteLine("Cancelled."); return 130; }
-    catch (Exception e) when (e is ProfileException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentOutOfRangeException)
+    catch (Exception e) when (e is ProfileException or IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentOutOfRangeException)
     { Console.Error.WriteLine("Input or output error: " + (e is ProfileException ? e.Message : e.GetType().Name)); return 2; }
     catch (Exception) { Console.Error.WriteLine("Internal error; no success is reported."); return 3; }
 }
