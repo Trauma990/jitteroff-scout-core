@@ -178,8 +178,16 @@ jobs:
           C:\scout\Scout.Cli.exe plan C:\scout\public-web.json
           exit /b %ERRORLEVEL%
           '@ | Set-Content (Join-Path $drop 'clean-smoke.cmd') -Encoding ascii
-          & docker info --format '{{.OSType}} {{.ServerVersion}}'
-          if ($LASTEXITCODE -ne 0) { throw 'Windows Docker engine unavailable.' }
+          $dockerService = Get-Service -Name docker -ErrorAction SilentlyContinue
+          if ($null -eq $dockerService) { throw 'Windows Docker service is missing.' }
+          if ($dockerService.Status -ne 'Running') { Start-Service -Name docker }
+          $dockerReady = $false
+          for ($attempt = 0; $attempt -lt 12; $attempt++) {
+            $dockerStatus = & docker info --format '{{.OSType}} {{.ServerVersion}}' 2>&1
+            if ($LASTEXITCODE -eq 0) { Write-Output $dockerStatus; $dockerReady = $true; break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $dockerReady) { throw 'Windows Docker engine did not become ready within 60 seconds.' }
           & docker run --rm --isolation=process --mount "type=bind,source=$drop,target=C:\scout,readonly" mcr.microsoft.com/windows/nanoserver@sha256:5a1c3c8308f8f5c9b67d21d2332a449d4ab8f9a6cf277f07d4aeac27ff2a0213 cmd /c C:\scout\clean-smoke.cmd
           if ($LASTEXITCODE -ne 0) { throw "Clean Windows container smoke test failed with $LASTEXITCODE." }
 
