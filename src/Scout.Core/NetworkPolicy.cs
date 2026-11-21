@@ -28,14 +28,33 @@ public sealed class PublicAddressPolicy : IAddressPolicy
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if ((b[0] & 0xe0) != 0x20) return false; // global unicast only
+            // IANA marks 2001::/23 non-global by default. Permit only its
+            // explicitly global assignments; an arbitrary address here can
+            // otherwise bypass the SSRF policy after DNS re-resolution.
+            if (InPrefix(b, [0x20, 0x01, 0x00], 23) &&
+                !address.Equals(IPAddress.Parse("2001:1::1")) &&
+                !address.Equals(IPAddress.Parse("2001:1::2")) &&
+                !address.Equals(IPAddress.Parse("2001:1::3")) &&
+                !InPrefix(b, [0x20, 0x01, 0x00, 0x03], 32) &&
+                !InPrefix(b, [0x20, 0x01, 0x00, 0x04, 0x01, 0x12], 48) &&
+                !InPrefix(b, [0x20, 0x01, 0x00, 0x20], 28) &&
+                !InPrefix(b, [0x20, 0x01, 0x00, 0x30], 28)) return false;
             if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) return false;
             if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x00 && b[3] == 0x00) return false; // Teredo
             if (b[0] == 0x20 && b[1] == 0x02) return false; // 6to4 embeds IPv4 destinations
             if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x00 && b[3] == 0x02) return false; // benchmarking
-            if (b[0] == 0x3f && b[1] == 0xff) return false; // documentation
+            if (InPrefix(b, [0x3f, 0xff, 0x00], 20)) return false; // documentation
             return true;
         }
         return false;
+    }
+    private static bool InPrefix(ReadOnlySpan<byte> address, ReadOnlySpan<byte> prefix, int bits)
+    {
+        var wholeBytes = bits / 8;
+        if (!address[..wholeBytes].SequenceEqual(prefix[..wholeBytes])) return false;
+        var remainder = bits % 8;
+        return remainder == 0 || (address[wholeBytes] & (0xff << (8 - remainder))) ==
+            (prefix[wholeBytes] & (0xff << (8 - remainder)));
     }
     public void ValidateAll(IReadOnlyList<IPAddress> addresses)
     {
@@ -58,8 +77,9 @@ public static class ReportValidator
         "network_error", "io_error", "probe_error", "dependency_failed", "http_incomplete_headers",
         "http_headers_too_large", "http_invalid_status", "http_switching_protocols", "http_too_many_informational"
     ], StringComparer.Ordinal);
-    public static void Validate(RunReport report)
+    public static void Validate(RunReport? report)
     {
+        if (report is null) throw new InvalidDataException("Report is null.");
         if (report.SchemaVersion != ScoutContract.ReportSchema || report.PolicyVersion != ScoutContract.PolicyVersion || report.SamplesRequested is < 1 or > 3 || report.Aggregation != "none") throw new InvalidDataException("Invalid report contract.");
         if (report.RunStatus is not ("complete" or "partial" or "cancelled" or "error")) throw new InvalidDataException("Invalid run_status.");
         if (report.ProfileDigest is null || report.ProfileDigest.Length != 64 || !report.ProfileDigest.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f')) throw new InvalidDataException("Invalid profile digest.");
@@ -69,6 +89,7 @@ public static class ReportValidator
         var planned = new HashSet<(string, string, int)>();
         foreach (var check in report.PlannedChecks)
         {
+            if (check is null) throw new InvalidDataException("Null planned check.");
             if (!ValidId(check.EndpointId) || !planned.Add((check.EndpointId, check.Probe, check.SampleIndex)) || !ScoutContract.ProbeOrder.Contains(check.Probe) || check.SampleIndex < 0 || check.SampleIndex >= report.SamplesRequested) throw new InvalidDataException("Invalid planned checks.");
         }
         if (planned.Select(x => x.Item1).Distinct(StringComparer.Ordinal).Count() > 10) throw new InvalidDataException("Too many endpoints.");
@@ -88,6 +109,7 @@ public static class ReportValidator
         var actual = new HashSet<(string, string, int)>();
         foreach (var check in report.Checks)
         {
+            if (check is null) throw new InvalidDataException("Null check result.");
             var key = (check.EndpointId, check.Probe, check.SampleIndex);
             if (!planned.Contains(key) || !actual.Add(key) || !ScoutContract.FinalStatuses.Contains(check.Status) || !Reasons.Contains(check.ReasonCode) || check.DurationMs < 0) throw new InvalidDataException("Invalid check result.");
             if (!ValidStatusReason(check)) throw new InvalidDataException("Status and reason disagree.");
@@ -111,16 +133,15 @@ public static class ReportValidator
     private static bool ValidId(string? id) => id is not null && id.Length is >= 1 and <= 64 &&
         (id[0] is >= 'a' and <= 'z' or >= '0' and <= '9') &&
         id.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-');
-    private static bool ValidVersion(string? version) => version is not null && version.Length is >= 5 and <= 64 && System.Text.RegularExpressions.Regex.IsMatch(version, @"^[0-9]+\.[0-9]+\.[0-9]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static bool ValidVersion(string? version) => version is not null && version.Length is >= 5 and <= 64 && System.Text.RegularExpressions.Regex.IsMatch(version, @"\A[0-9]+\.[0-9]+\.[0-9]+\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     private static bool ValidStatusReason(CheckResult check) => check.Status switch
     {
         "pass" => check.ReasonCode == check.Probe switch
         {
             "dns" => "resolved", "tcp" => "connected", "tls" => "certificate_valid", "http" => "expected_status", _ => ""
         },
-        "fail" => check.ReasonCode is "timeout" or "network_error" or "io_error" || (check.Probe switch
+        "fail" => check.ReasonCode is "timeout" or "network_error" or "io_error" or "dns_no_answer" || (check.Probe switch
         {
-            "dns" => check.ReasonCode == "dns_no_answer",
             "tls" => check.ReasonCode == "tls_validation_failed",
             "http" => check.ReasonCode is "tls_validation_failed" or "http_incomplete_headers" or "http_headers_too_large" or "http_invalid_status" or "http_switching_protocols" or "http_too_many_informational" or "unexpected_status",
             _ => false

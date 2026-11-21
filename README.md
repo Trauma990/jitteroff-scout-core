@@ -22,7 +22,7 @@
 
 ## Quick start
 
-Install the **.NET 10 SDK 10.0.300** (or a later 10.0 patch), clone this repository, and run from its root:
+Install the **.NET 10 SDK 10.0.404** (or a later 10.0 patch), clone this repository, and run from its root:
 
 ```sh
 dotnet restore --locked-mode

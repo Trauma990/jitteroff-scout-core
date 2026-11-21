@@ -116,3 +116,6 @@ $manifest.relationships = @(
 )
 
 $manifest | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $ManifestPath -Encoding utf8
+$digestPath = "$ManifestPath.sha256"
+$digest = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+[System.IO.File]::WriteAllText($digestPath, $digest, [System.Text.Encoding]::ASCII)

@@ -20,7 +20,7 @@ public static class ScoutContract
 {
     public const string ProfileSchema = "0.1";
     public const string ReportSchema = "0.1";
-    public const string PolicyVersion = "public-address-v1";
+    public const string PolicyVersion = "public-address-v2";
     public static readonly IReadOnlyList<string> ProbeOrder = ["dns", "tcp", "tls", "http"];
     public static readonly IReadOnlySet<string> FinalStatuses = new HashSet<string>(["pass", "fail", "inconclusive", "blocked", "skipped", "cancelled"], StringComparer.Ordinal);
 }

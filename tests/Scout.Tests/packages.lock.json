@@ -99,6 +99,16 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "scout.cli": {
+        "type": "Project",
+        "dependencies": {
+          "Scout.Contracts": "[0.1.0, )",
+          "Scout.Core": "[0.1.0, )",
+          "Scout.Privacy": "[0.1.0, )",
+          "Scout.Probes": "[0.1.0, )",
+          "Scout.Reporting": "[0.1.0, )"
+        }
+      },
       "scout.contracts": {
         "type": "Project"
       },
