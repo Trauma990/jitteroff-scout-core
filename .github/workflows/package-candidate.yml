@@ -11,6 +11,11 @@ on:
         options:
           - 0.1.0-dev
           - 0.1.0
+      publish_release:
+        description: Publish a GitHub Release after all package and clean-host checks pass
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -165,3 +170,101 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows Docker engine unavailable.' }
           & docker run --rm --isolation=process --mount "type=bind,source=$drop,target=C:\scout,readonly" mcr.microsoft.com/windows/nanoserver@sha256:5a1c3c8308f8f5c9b67d21d2332a449d4ab8f9a6cf277f07d4aeac27ff2a0213 cmd /c C:\scout\clean-smoke.cmd
           if ($LASTEXITCODE -ne 0) { throw "Clean Windows container smoke test failed with $LASTEXITCODE." }
+
+  release:
+    if: ${{ inputs.publish_release && inputs.package_version == '0.1.0' && github.ref == 'refs/heads/main' }}
+    needs: [package, clean-windows-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: scout-candidate-win-x64
+          path: candidate/win-x64
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: scout-candidate-linux-x64
+          path: candidate/linux-x64
+      - name: Verify final archives and component licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rid in win-x64 linux-x64; do
+            (cd "candidate/$rid" && tr -d '\r' < "SHA256SUMS-$rid.txt" | sha256sum --check -)
+          done
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import zipfile
+          from pathlib import Path
+
+          for rid in ('win-x64', 'linux-x64'):
+              archive = Path(f'candidate/{rid}/jitteroff-scout-core-0.1.0-{rid}.zip')
+              with zipfile.ZipFile(archive) as package:
+                  names = set(package.namelist())
+                  required = {'LICENSE', 'README.md', 'THIRD-PARTY-LICENSES.md',
+                              'DOTNET-RUNTIME-LICENSE.txt',
+                              'DOTNET-RUNTIME-THIRD-PARTY-NOTICES.txt',
+                              '_manifest/spdx_2.2/manifest.spdx.json', 'public-web.json'}
+                  required.add('Scout.Cli.exe' if rid == 'win-x64' else 'Scout.Cli')
+                  if not required.issubset(names):
+                      raise SystemExit(f'{rid}: required files missing: {required - names}')
+                  sbom = json.loads(package.read('_manifest/spdx_2.2/manifest.spdx.json'))
+                  packages = {item['name']: item['licenseConcluded'] for item in sbom['packages']}
+                  expected = {'jitteroff-scout-core': 'Apache-2.0',
+                              f'Microsoft.NETCore.App.Runtime.{rid}':
+                                  'MIT AND LicenseRef-DotNet-Library' if rid == 'win-x64' else 'MIT',
+                              f'Microsoft.NETCore.App.Host.{rid}': 'MIT'}
+                  if packages != expected:
+                      raise SystemExit(f'{rid}: unexpected SBOM packages or licenses: {packages}')
+                  if rid == 'win-x64':
+                      license_name = 'DOTNET-WINDOWS-LIBRARY-LICENSE.txt'
+                      if license_name not in names:
+                          raise SystemExit('Windows Library License missing')
+                      digest = hashlib.sha256(package.read(license_name)).hexdigest()
+                      if digest != '7f6839a61ce892b79c6549e2dc5a81fdbd240a0b260f8881216b45b7fda8b45d':
+                          raise SystemExit('Windows Library License checksum mismatch')
+          PY
+      - name: Create, verify, and publish v0.1.0
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            echo 'v0.1.0 Release already exists; refusing to replace it.' >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin refs/tags/v0.1.0 >/dev/null 2>&1; then
+            echo 'v0.1.0 tag already exists; refusing to retag it.' >&2
+            exit 1
+          fi
+          cp docs/releases/v0.1.0.md candidate/release-notes.md
+          {
+            printf '\n## Build evidence\n\n'
+            printf -- '- Source commit: `%s`\n' "$GITHUB_SHA"
+            printf -- '- [Release workflow](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf '\n### SHA-256\n\n```text\n'
+            cat candidate/win-x64/SHA256SUMS-win-x64.txt
+            cat candidate/linux-x64/SHA256SUMS-linux-x64.txt
+            printf '```\n'
+          } >> candidate/release-notes.md
+          gh release create v0.1.0 \
+            candidate/win-x64/jitteroff-scout-core-0.1.0-win-x64.zip \
+            candidate/linux-x64/jitteroff-scout-core-0.1.0-linux-x64.zip \
+            candidate/win-x64/SHA256SUMS-win-x64.txt \
+            candidate/linux-x64/SHA256SUMS-linux-x64.txt \
+            --target "$GITHUB_SHA" --title 'JITTEROFF Scout Core v0.1.0' \
+            --notes-file candidate/release-notes.md --draft
+          mkdir -p verified-release
+          gh release download v0.1.0 --dir verified-release
+          for rid in win-x64 linux-x64; do
+            (cd verified-release && tr -d '\r' < "SHA256SUMS-$rid.txt" | sha256sum --check -)
+            cmp "candidate/$rid/jitteroff-scout-core-0.1.0-$rid.zip" "verified-release/jitteroff-scout-core-0.1.0-$rid.zip"
+          done
+          gh release edit v0.1.0 --draft=false
+          gh release view v0.1.0 --json url,isDraft,tagName
