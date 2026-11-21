@@ -91,7 +91,7 @@ The security tests include a real local DNS server changing its answer mid-run, 
 
 ## Project and release status
 
-The source, [architecture decision](docs/ADR-0001.md), [contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), English docs, and [Persian introduction](docs/README.fa.md) are public. CI builds and tests on Windows and Ubuntu. A separate [manual packaging workflow](.github/workflows/package-candidate.yml) makes short-lived **candidate** archives with SHA-256 checksums and SPDX SBOMs; those artifacts are not a release.
+The source, [architecture decision](docs/ADR-0001.md), [contract](docs/CONTRACT-0.1.md), [threat model](docs/THREAT-MODEL.md), English docs, and [Persian introduction](docs/README.fa.md) are public. CI builds and tests on Windows and Ubuntu. A separate [manual packaging workflow](.github/workflows/package-candidate.yml) makes short-lived **candidate** archives with SHA-256 checksums and SPDX SBOMs. Its explicit release mode publishes only after both platform jobs and a clean Windows smoke test pass, and then verifies downloaded draft Release assets before making the Release public.
 
 Use [GitHub Releases](https://github.com/Trauma990/jitteroff-scout-core/releases) for tagged downloads. The [release checklist](https://github.com/Trauma990/jitteroff-scout-core/issues/3) and [status evidence](docs/STATUS.md) record validation and known limitations. [Distributed component license notes](docs/THIRD-PARTY-LICENSES.md) describe the binary archives.
 
